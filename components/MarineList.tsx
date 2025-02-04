@@ -40,14 +40,13 @@ export default function MarineList() {
         const response = await fetch("/api/marines")
         if (response.ok) {
             const data = await response.json()
-            setMarines(data)
+            setMarines(data.sort((a, b) => a.lastName.localeCompare(b.lastName)))
         } else {
             console.error("Failed to fetch marines")
         }
     }
 
     const handleViewDetails = (marineId: number) => {
-        console.log("Opening details for Marine ID:", marineId)
         setSelectedMarineId(marineId)
         setIsViewingDetails(true)
     }
@@ -243,14 +242,20 @@ export default function MarineList() {
             </Table>
 
             <Dialog open={isViewingDetails} onOpenChange={setIsViewingDetails}>
-                <DialogContent className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50">
-                    <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
-                        <DialogHeader>
-                            <DialogTitle>Marine Details</DialogTitle>
-                            <DialogDescription>Detailed information and history for the selected Marine.</DialogDescription>
-                        </DialogHeader>
-                        {selectedMarineId && <MarineDetails marineId={selectedMarineId} />}
-                    </div>
+                <DialogContent className="sm:max-w-[800px] w-[90vw] bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold mb-4">Marine Details</DialogTitle>
+                        <DialogDescription className="text-gray-600 dark:text-gray-300 mb-4">
+                            Detailed information for the selected Marine.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {selectedMarineId !== null && (
+                        <MarineDetails
+                            key={selectedMarineId}
+                            marineId={selectedMarineId}
+                            setIsViewingDetails={setIsViewingDetails}
+                        />
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

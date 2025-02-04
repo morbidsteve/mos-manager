@@ -38,44 +38,46 @@ export async function POST(request: NextRequest) {
         }
 
         console.log("Creating assignment")
-        const assignment = await prisma.assignment.create({
-            data: {
-                marineId: Number(marineId),
-                unitId: Number(unitId),
-                bicId: Number(bicId),
-                dctb: new Date(dctb),
-                djcu: new Date(djcu),
-                ocd: ocd ? new Date(ocd) : undefined,
-                plannedEndDate: new Date(plannedEndDate),
-                tourLength: Number(tourLength),
-            },
-            include: {
-                marine: true,
-                unit: true,
-                bic: true,
-            },
+        const assignment = await prisma.$transaction(async (prisma) => {
+            const newAssignment = await prisma.assignment.create({
+                data: {
+                    marineId: Number(marineId),
+                    unitId: Number(unitId),
+                    bicId: Number(bicId),
+                    dctb: new Date(dctb),
+                    djcu: new Date(djcu),
+                    ocd: ocd ? new Date(ocd) : undefined,
+                    plannedEndDate: new Date(plannedEndDate),
+                    tourLength: Number(tourLength),
+                },
+                include: {
+                    marine: true,
+                    unit: true,
+                    bic: true,
+                },
+            })
+
+            await prisma.assignmentHistory.create({
+                data: {
+                    assignmentId: newAssignment.id,
+                    changeType: "CREATE",
+                    newValue: JSON.stringify(newAssignment),
+                },
+            })
+
+            await prisma.changeLog.create({
+                data: {
+                    modelName: "Assignment",
+                    recordId: newAssignment.id,
+                    changeType: "CREATE",
+                    newValue: JSON.stringify(newAssignment),
+                },
+            })
+
+            return newAssignment
         })
+
         console.log("Assignment created:", assignment)
-
-        console.log("Creating AssignmentHistory")
-        await prisma.assignmentHistory.create({
-            data: {
-                assignmentId: assignment.id,
-                changeType: "CREATE",
-                newValue: JSON.stringify(assignment),
-            },
-        })
-
-        console.log("Creating ChangeLog")
-        await prisma.changeLog.create({
-            data: {
-                modelName: "Assignment",
-                recordId: assignment.id,
-                changeType: "CREATE",
-                newValue: JSON.stringify(assignment),
-            },
-        })
-
         console.log("Returning successful response")
         return NextResponse.json(assignment, { status: 201 })
     } catch (error) {

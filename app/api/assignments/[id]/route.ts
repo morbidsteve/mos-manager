@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { PrismaClient } from "@prisma/client"
 
 const prisma = new PrismaClient()
@@ -11,7 +11,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
             include: {
                 marine: true,
                 unit: true,
-                billet: true,
+                bic: true, // Changed from 'billet' to 'bic'
             },
         })
         if (assignment) {
@@ -38,18 +38,65 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
-    const id = params.id
+export async function PUT(request: NextRequest, context: { params: { id: string } }) {
+    const { id } = context.params
+    const assignmentId = Number(id)
+
+    if (isNaN(assignmentId)) {
+        return NextResponse.json({ error: "Invalid Assignment ID" }, { status: 400 })
+    }
+
     const body = await request.json()
     try {
-        const updatedAssignment = await prisma.assignment.update({
-            where: { id: Number(id) },
-            data: {
-                dctb: body.dctb,
-                djcu: body.djcu,
-                ocd: body.ocd,
-            },
+        const currentAssignment = await prisma.assignment.findUnique({
+            where: { id: assignmentId },
+            include: { marine: true, unit: true, bic: true },
         })
+
+        if (!currentAssignment) {
+            return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+        }
+
+        const updatedAssignment = await prisma.$transaction(async (prisma) => {
+            const updated = await prisma.assignment.update({
+                where: { id: assignmentId },
+                data: {
+                    marineId: Number(body.marineId),
+                    unitId: Number(body.unitId),
+                    bicId: Number(body.bicId),
+                    dctb: new Date(body.dctb),
+                    djcu: new Date(body.djcu),
+                    ocd: body.ocd ? new Date(body.ocd) : null,
+                    plannedEndDate: new Date(body.plannedEndDate),
+                    tourLength: Number(body.tourLength),
+                },
+                include: { marine: true, unit: true, bic: true },
+            })
+
+            // Create AssignmentHistory entry
+            await prisma.assignmentHistory.create({
+                data: {
+                    assignmentId: assignmentId,
+                    changeType: "UPDATE",
+                    oldValue: JSON.stringify(currentAssignment),
+                    newValue: JSON.stringify(updated),
+                },
+            })
+
+            // Create ChangeLog entry
+            await prisma.changeLog.create({
+                data: {
+                    modelName: "Assignment",
+                    recordId: assignmentId,
+                    changeType: "UPDATE",
+                    oldValue: JSON.stringify(currentAssignment),
+                    newValue: JSON.stringify(updated),
+                },
+            })
+
+            return updated
+        })
+
         return NextResponse.json(updatedAssignment)
     } catch (error) {
         console.error("Error updating Assignment:", error)

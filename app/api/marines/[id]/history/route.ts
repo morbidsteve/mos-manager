@@ -3,12 +3,12 @@ import { PrismaClient } from "@prisma/client"
 
 const prisma = new PrismaClient()
 
-export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: { id: string } }) {
     const { id } = await context.params
-    const marineId = Number.parseInt(id, 10)
+    const marineId = Number(id)
 
     if (isNaN(marineId)) {
-        return NextResponse.json({ error: "Invalid ID" }, { status: 400 })
+        return NextResponse.json({ error: "Invalid Marine ID" }, { status: 400 })
     }
 
     try {
@@ -22,7 +22,4 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         return NextResponse.json({ error: "Error fetching Marine history" }, { status: 400 })
     }
 }
-
-
-
 
