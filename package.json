@@ -1,27 +1,47 @@
 {
   "name": "mos-management",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "MOS 1710 Management System",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
+  "keywords": [
+    "mos",
+    "management",
+    "military"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "next": "15.1.6"
+    "@faker-js/faker": "^9.4.0",
+    "@prisma/client": "^4.0.0",
+    "@radix-ui/react-dialog": "^1.1.5",
+    "@radix-ui/react-scroll-area": "^1.2.2",
+    "@radix-ui/react-select": "^2.1.5",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-tooltip": "^1.1.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.474.0",
+    "next": "^15.1.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "shadcn-ui": "^0.9.4",
+    "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "eslint": "^9",
-    "eslint-config-next": "15.1.6",
-    "@eslint/eslintrc": "^3"
+    "@types/node": "^18.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "autoprefixer": "^10.4.0",
+    "playwright": "^1.50.1",
+    "postcss": "^8.4.0",
+    "prisma": "^4.0.0",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^4.7.4"
   }
 }
