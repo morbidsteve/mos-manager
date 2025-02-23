@@ -1,10 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import MarineForm from "./MarineForm" // Reusing the existing Marine form
+import { Pencil } from "lucide-react"
 
 interface Marine {
     id: number
@@ -57,14 +61,21 @@ interface AssignmentDetails {
     tourLength: number
 }
 
-export default function MarineDetails({
-                                          marineId,
-                                          setIsViewingDetails,
-                                      }: { marineId: number; setIsViewingDetails: (value: boolean) => void }) {
+interface MarineDetailsProps {
+    marineId: number
+    onClose: () => void
+    onUpdate?: (updatedMarine: any) => void
+    allowEditing?: boolean
+}
+
+export default function MarineDetails({ marineId, onClose, onUpdate, allowEditing = false }: MarineDetailsProps) {
     const [marine, setMarine] = useState<Marine | null>(null)
     const [marineHistory, setMarineHistory] = useState<MarineHistory[]>([])
     const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [isEditing, setIsEditing] = useState(false)
+    const componentRef = useRef<HTMLDivElement>(null)
+    const [selectedAssignment, setSelectedAssignment] = useState<AssignmentHistory | null>(null)
 
     useEffect(() => {
         async function fetchData() {
@@ -99,20 +110,10 @@ export default function MarineDetails({
     }, [marineId])
 
     useEffect(() => {
-        console.log("MarineDetails mounted with marineId:", marineId)
-        return () => {
-            console.log("MarineDetails unmounted")
-        }
-    }, [marineId])
+        return () => {}
+    }, [])
 
-    if (isLoading) {
-        return <div className="text-center py-4">Loading marine details...</div>
-    }
-
-    if (!marine) {
-        return <div className="text-center py-4 text-red-500">Error loading marine details</div>
-    }
-
+    // Move these calculations inside the render after null checks
     const calculateTimeLeft = (startDate: string, endDate: string) => {
         const start = new Date(startDate)
         const end = new Date(endDate)
@@ -125,8 +126,19 @@ export default function MarineDetails({
         return d.getMonth() >= 9 ? d.getFullYear() + 1 : d.getFullYear()
     }
 
+    // Remove calculations from component level and move them inside the render
+
+    if (isLoading) {
+        return <div className="text-center py-4">Loading marine details...</div>
+    }
+
+    if (!marine) {
+        return <div className="text-center py-4 text-red-500">Error loading marine details</div>
+    }
+
+    // Calculate values only after we confirm marine exists
     const timeLeftOnOrders =
-        marine.dctb && marine.tourLength
+        marine?.dctb && marine?.tourLength
             ? calculateTimeLeft(
                 marine.dctb,
                 new Date(new Date(marine.dctb).setMonth(new Date(marine.dctb).getMonth() + marine.tourLength)).toISOString(),
@@ -152,28 +164,121 @@ export default function MarineDetails({
     const nextPromotionFY = earliestPromotionFY + 3
 
     const parseAssignmentDetails = (value: string): AssignmentDetails => {
-        const parsed = JSON.parse(value)
-        return {
-            bic: parsed.bic.bic,
-            unitName: parsed.unit.name,
-            dctb: new Date(parsed.dctb).toLocaleDateString(),
-            djcu: new Date(parsed.djcu).toLocaleDateString(),
-            ocd: parsed.ocd ? new Date(parsed.ocd).toLocaleDateString() : "N/A",
-            plannedEndDate: new Date(parsed.plannedEndDate).toLocaleDateString(),
-            tourLength: parsed.tourLength,
+        try {
+            const parsed = JSON.parse(value)
+            return {
+                bic: parsed?.bic?.bic ?? "N/A",
+                unitName: parsed?.unit?.name ?? "N/A",
+                dctb: parsed?.dctb ? new Date(parsed.dctb).toLocaleDateString() : "N/A",
+                djcu: parsed?.djcu ? new Date(parsed.djcu).toLocaleDateString() : "N/A",
+                ocd: parsed?.ocd ? new Date(parsed.ocd).toLocaleDateString() : "N/A",
+                plannedEndDate: parsed?.plannedEndDate ? new Date(parsed.plannedEndDate).toLocaleDateString() : "N/A",
+                tourLength: parsed?.tourLength ?? 0,
+            }
+        } catch (error) {
+            console.error("Error parsing assignment details:", error)
+            return {
+                bic: "N/A",
+                unitName: "N/A",
+                dctb: "N/A",
+                djcu: "N/A",
+                ocd: "N/A",
+                plannedEndDate: "N/A",
+                tourLength: 0,
+            }
         }
     }
 
+    const formatHistoryValue = (value: string): string => {
+        try {
+            const parsed = JSON.parse(value)
+            // If it's a marine object, format it nicely
+            if (parsed?.lastName && parsed?.firstName) {
+                return `${parsed.lastName}, ${parsed.firstName} ${parsed.middleInitial || ""}`
+            }
+            // If it's a date, format it
+            if (parsed && !isNaN(new Date(parsed).getTime())) {
+                return new Date(parsed).toLocaleDateString()
+            }
+            // If it's a simple value, return as is
+            if (typeof parsed !== "object") {
+                return String(parsed)
+            }
+            // For other objects, return a formatted string
+            return JSON.stringify(parsed, null, 2)
+        } catch {
+            // If parsing fails, return the original value
+            return value || "N/A"
+        }
+    }
+
+    const handleEdit = () => {
+        setIsEditing(true)
+    }
+
+    const handleUpdate = async (updatedMarineData: any) => {
+        try {
+            const response = await fetch(`/api/marines/${marineId}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(updatedMarineData),
+            })
+
+            if (!response.ok) throw new Error("Failed to update marine")
+
+            const updatedMarine = await response.json()
+            setMarine(updatedMarine)
+            setIsEditing(false)
+            onUpdate?.(updatedMarine)
+        } catch (error) {
+            console.error("Error updating marine:", error)
+        }
+    }
+
+    const handleAssignmentUpdate = () => {
+        // Placeholder for assignment update logic
+        console.log("Assignment updated")
+    }
+
+    if (isEditing) {
+        return (
+            <Dialog open={isEditing} onOpenChange={(open) => !open && setIsEditing(false)}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit Marine</DialogTitle>
+                    </DialogHeader>
+                    <MarineForm marine={marine} onSubmit={handleUpdate} onCancel={() => setIsEditing(false)} />
+                </DialogContent>
+            </Dialog>
+        )
+    }
+
     return (
-        <div className="space-y-8 text-gray-800 dark:text-gray-200">
+        <div
+            className="space-y-8 bg-background text-foreground overflow-y-auto"
+            ref={componentRef}
+            style={{ visibility: "visible", opacity: 1 }}
+        >
             <Card className="bg-white dark:bg-gray-700">
-                <button
-                    onClick={() => setIsViewingDetails(false)}
-                    className="absolute top-2 right-2 p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
-                >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">Close</span>
-                </button>
+                <div className="absolute top-2 right-2 flex gap-2">
+                    {allowEditing && (
+                        <Button
+                            onClick={handleEdit}
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
+                        >
+                            <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Edit</span>
+                        </Button>
+                    )}
+                    <button onClick={onClose} className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors">
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Close</span>
+                    </button>
+                </div>
                 <CardHeader>
                     <CardTitle className="text-xl font-semibold">{`${marine.lastName}, ${marine.firstName} ${marine.middleInitial || ""}`}</CardTitle>
                 </CardHeader>
@@ -227,8 +332,8 @@ export default function MarineDetails({
                                     <TableRow key={index}>
                                         <TableCell>{new Date(change.changedAt).toLocaleString()}</TableCell>
                                         <TableCell>{change.fieldName}</TableCell>
-                                        <TableCell>{change.oldValue}</TableCell>
-                                        <TableCell>{change.newValue}</TableCell>
+                                        <TableCell>{change.oldValue ? formatHistoryValue(change.oldValue) : "N/A"}</TableCell>
+                                        <TableCell>{change.newValue ? formatHistoryValue(change.newValue) : "N/A"}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -351,6 +456,16 @@ export default function MarineDetails({
                     </div>
                 </CardContent>
             </Card>
+            <Dialog open={!!selectedAssignment} onOpenChange={(open) => !open && setSelectedAssignment(null)}>
+                <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <DialogHeader className="flex-none">
+                        <DialogTitle>Marine Details</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex-1 overflow-y-auto pr-2">
+                        {selectedAssignment && <div>AssignmentTimelineDetails Component Here</div>}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { PrismaClient } from "@prisma/client"
 
 const prisma = new PrismaClient()
@@ -10,83 +10,139 @@ export async function GET() {
                 marine: true,
                 unit: true,
                 bic: true,
+                orders: true,
+                history: {
+                    orderBy: {
+                        changedAt: 'desc'
+                    }
+                }
             },
+            orderBy: [
+                { dctb: 'desc' }
+            ]
         })
         return NextResponse.json(assignments)
     } catch (error) {
-        console.error("Error fetching Assignments:", error)
-        return NextResponse.json({ error: "Error fetching Assignments" }, { status: 400 })
+        console.error("Error fetching assignments:", error)
+        return NextResponse.json({ error: "Failed to fetch assignments" }, { status: 500 })
     }
 }
 
-export async function POST(request: NextRequest) {
-    console.log("POST request received")
+export async function POST(request: Request) {
     try {
-        const body = await request.json()
-        console.log("Request body:", body)
+        const data = await request.json()
 
-        if (!body || typeof body !== "object") {
-            console.error("Invalid request body")
-            return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
-        }
-
-        const { marineId, unitId, bicId, dctb, djcu, ocd, plannedEndDate, tourLength } = body
-
-        if (!marineId || !unitId || !bicId || !dctb || !djcu || !plannedEndDate || !tourLength) {
-            console.error("Missing required fields")
-            return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
-        }
-
-        console.log("Creating assignment")
-        const assignment = await prisma.$transaction(async (prisma) => {
-            const newAssignment = await prisma.assignment.create({
-                data: {
-                    marineId: Number(marineId),
-                    unitId: Number(unitId),
-                    bicId: Number(bicId),
-                    dctb: new Date(dctb),
-                    djcu: new Date(djcu),
-                    ocd: ocd ? new Date(ocd) : undefined,
-                    plannedEndDate: new Date(plannedEndDate),
-                    tourLength: Number(tourLength),
-                },
+        // Create assignment and history in transaction
+        const [assignment] = await prisma.$transaction([
+            prisma.assignment.create({
+                data,
                 include: {
                     marine: true,
                     unit: true,
                     bic: true,
-                },
-            })
-
-            await prisma.assignmentHistory.create({
+                    orders: true
+                }
+            }),
+            prisma.assignmentHistory.create({
                 data: {
-                    assignmentId: newAssignment.id,
-                    changeType: "CREATE",
-                    newValue: JSON.stringify(newAssignment),
-                },
+                    assignmentId: (await prisma.assignment.findFirst({ orderBy: { id: 'desc' } }))!.id + 1,
+                    changeType: 'CREATE',
+                    newValue: JSON.stringify(data)
+                }
             })
+        ])
 
-            await prisma.changeLog.create({
-                data: {
-                    modelName: "Assignment",
-                    recordId: newAssignment.id,
-                    changeType: "CREATE",
-                    newValue: JSON.stringify(newAssignment),
-                },
-            })
-
-            return newAssignment
-        })
-
-        console.log("Assignment created:", assignment)
-        console.log("Returning successful response")
-        return NextResponse.json(assignment, { status: 201 })
+        return NextResponse.json(assignment)
     } catch (error) {
-        console.error("Error creating Assignment:", error)
-        if (error instanceof Error) {
-            return NextResponse.json({ error: "Error creating Assignment: " + error.message }, { status: 500 })
-        } else {
-            return NextResponse.json({ error: "An unknown error occurred" }, { status: 500 })
-        }
+        console.error("Error creating assignment:", error)
+        return NextResponse.json({ error: "Failed to create assignment" }, { status: 500 })
     }
 }
 
+export async function PUT(request: Request) {
+    try {
+        const { id, ...data } = await request.json()
+
+        // Get current assignment data for history
+        const currentAssignment = await prisma.assignment.findUnique({
+            where: { id },
+            include: {
+                marine: true,
+                unit: true,
+                bic: true,
+                orders: true
+            }
+        })
+
+        if (!currentAssignment) {
+            return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+        }
+
+        // Update assignment and create history in transaction
+        const [updatedAssignment] = await prisma.$transaction([
+            prisma.assignment.update({
+                where: { id },
+                data,
+                include: {
+                    marine: true,
+                    unit: true,
+                    bic: true,
+                    orders: true
+                }
+            }),
+            prisma.assignmentHistory.create({
+                data: {
+                    assignmentId: id,
+                    changeType: 'UPDATE',
+                    oldValue: JSON.stringify(currentAssignment),
+                    newValue: JSON.stringify({ ...currentAssignment, ...data })
+                }
+            })
+        ])
+
+        return NextResponse.json(updatedAssignment)
+    } catch (error) {
+        console.error("Error updating assignment:", error)
+        return NextResponse.json({ error: "Failed to update assignment" }, { status: 500 })
+    }
+}
+
+export async function DELETE(request: Request) {
+    try {
+        const { id } = await request.json()
+
+        // Get current assignment data for history
+        const currentAssignment = await prisma.assignment.findUnique({
+            where: { id },
+            include: {
+                marine: true,
+                unit: true,
+                bic: true,
+                orders: true
+            }
+        })
+
+        if (!currentAssignment) {
+            return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
+        }
+
+        // Delete assignment and create history in transaction
+        await prisma.$transaction([
+            prisma.assignmentHistory.create({
+                data: {
+                    assignmentId: id,
+                    changeType: 'DELETE',
+                    oldValue: JSON.stringify(currentAssignment)
+                }
+            }),
+            prisma.assignment.delete({
+                where: { id }
+            })
+        ])
+
+        return NextResponse.json({ success: true })
+    } catch (error) {
+        console.error("Error deleting assignment:", error)
+        return NextResponse.json({ error: "Failed to delete assignment" }, { status: 500 })
+    }
+}

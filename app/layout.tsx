@@ -1,13 +1,13 @@
-import "./globals.css"
-import { Inter } from "next/font/google"
 import type React from "react"
-import { MainNav } from "../components/MainNav"
+import { Inter } from "next/font/google"
+import "./globals.css"
+import { Header } from "@/components/header"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata = {
     title: "MOS Management System",
-    description: "Management system for MOS 1710",
+    description: "Marine Corps MOS Management System",
 }
 
 export default function RootLayout({
@@ -18,13 +18,10 @@ export default function RootLayout({
     return (
         <html lang="en">
         <body className={inter.className}>
-        <header className="border-b">
-            <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                <h1 className="text-2xl font-bold">MOS Management</h1>
-                <MainNav />
-            </div>
-        </header>
-        <main>{children}</main>
+        <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-1">{children}</main>
+        </div>
         </body>
         </html>
     )

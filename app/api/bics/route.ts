@@ -8,30 +8,87 @@ export async function GET() {
         const bics = await prisma.bIC.findMany({
             include: {
                 unit: true,
+                assignments: {
+                    include: {
+                        marine: true,
+                    },
+                    where: {
+                        djcu: {
+                            gt: new Date(),
+                        },
+                    },
+                    take: 1,
+                },
             },
         })
         return NextResponse.json(bics)
     } catch (error) {
         console.error("Error fetching BICs:", error)
-        return NextResponse.json({ error: "Error fetching BICs" }, { status: 400 })
+        return NextResponse.json({ error: "Failed to fetch BICs" }, { status: 500 })
+    } finally {
+        await prisma.$disconnect()
     }
 }
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json()
+        const data = await request.json()
         const bic = await prisma.bIC.create({
-            data: {
-                bic: body.bic,
-                description: body.description,
-                payGrade: body.payGrade,
-                unitId: Number(body.unitId),
+            data,
+            include: {
+                unit: true,
+                assignments: {
+                    include: {
+                        marine: true,
+                    },
+                },
             },
         })
-        return NextResponse.json(bic, { status: 201 })
+        return NextResponse.json(bic)
     } catch (error) {
         console.error("Error creating BIC:", error)
-        return NextResponse.json({ error: "Error creating BIC" }, { status: 400 })
+        return NextResponse.json({ error: "Failed to create BIC" }, { status: 500 })
+    } finally {
+        await prisma.$disconnect()
+    }
+}
+
+export async function PUT(request: Request) {
+    try {
+        const { id, ...data } = await request.json()
+        const bic = await prisma.bIC.update({
+            where: { id },
+            data,
+            include: {
+                unit: true,
+                assignments: {
+                    include: {
+                        marine: true,
+                    },
+                },
+            },
+        })
+        return NextResponse.json(bic)
+    } catch (error) {
+        console.error("Error updating BIC:", error)
+        return NextResponse.json({ error: "Failed to update BIC" }, { status: 500 })
+    } finally {
+        await prisma.$disconnect()
+    }
+}
+
+export async function DELETE(request: Request) {
+    try {
+        const { id } = await request.json()
+        await prisma.bIC.delete({
+            where: { id },
+        })
+        return NextResponse.json({ success: true })
+    } catch (error) {
+        console.error("Error deleting BIC:", error)
+        return NextResponse.json({ error: "Failed to delete BIC" }, { status: 500 })
+    } finally {
+        await prisma.$disconnect()
     }
 }
 

@@ -24,10 +24,15 @@ interface Assignment {
     ocd?: string
 }
 
-export default function AssignmentList() {
-    const [assignments, setAssignments] = useState<Assignment[]>([])
+interface AssignmentListProps {
+    initialAssignments: Assignment[]
+    isLoading: boolean
+    onSuccess: () => Promise<void>
+}
+
+export default function AssignmentList({ initialAssignments, isLoading, onSuccess }: AssignmentListProps) {
+    const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments)
     const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     async function fetchAssignments() {
@@ -40,14 +45,13 @@ export default function AssignmentList() {
             setAssignments(data)
         } catch (error) {
             setError((error as Error).message)
-        } finally {
-            setIsLoading(false)
         }
     }
 
     useEffect(() => {
-        fetchAssignments()
-    }, [])
+        console.log("AssignmentList received initialAssignments:", initialAssignments)
+        setAssignments(initialAssignments)
+    }, [initialAssignments])
 
     async function deleteAssignment(id: number) {
         if (confirm("Are you sure you want to delete this Assignment?")) {
@@ -55,7 +59,7 @@ export default function AssignmentList() {
                 method: "DELETE",
             })
             if (response.ok) {
-                fetchAssignments()
+                await onSuccess()
             } else {
                 console.error("Failed to delete assignment")
             }
@@ -71,7 +75,7 @@ export default function AssignmentList() {
             body: JSON.stringify(assignment),
         })
         if (response.ok) {
-            fetchAssignments()
+            await onSuccess()
             setEditingAssignment(null)
         } else {
             console.error("Failed to update assignment")
@@ -80,9 +84,8 @@ export default function AssignmentList() {
 
     if (isLoading) {
         return (
-            <div className="mt-6">
-                <h2 className="text-2xl font-bold mb-4">Assignment List</h2>
-                <p>Loading...</p>
+            <div className="flex items-center justify-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
         )
     }

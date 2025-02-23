@@ -19,10 +19,15 @@ interface BIC {
     }
 }
 
-export default function BICList() {
-    const [bics, setBICs] = useState<BIC[]>([])
+interface BICListProps {
+    initialBics: BIC[]
+    isLoading: boolean
+    onSuccess: () => Promise<void>
+}
+
+export default function BICList({ initialBics, isLoading, onSuccess }: BICListProps) {
+    const [bics, setBICs] = useState<BIC[]>(initialBics)
     const [editingBIC, setEditingBIC] = useState<BIC | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const fetchBICs = async () => {
@@ -36,13 +41,13 @@ export default function BICList() {
         } catch (error) {
             setError(error instanceof Error ? error.message : "An unexpected error occurred.")
         } finally {
-            setIsLoading(false)
         }
     }
 
     useEffect(() => {
-        fetchBICs()
-    }, []) //Fixed: Added empty dependency array to useEffect
+        console.log("BICList received initialBics:", initialBics)
+        setBICs(initialBics)
+    }, [initialBics])
 
     const deleteBIC = async (id: number) => {
         if (confirm("Are you sure you want to delete this BIC?")) {
@@ -53,7 +58,7 @@ export default function BICList() {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`)
                 }
-                await fetchBICs()
+                await onSuccess()
             } catch (error) {
                 console.error("Failed to delete BIC:", error)
             }
@@ -77,14 +82,20 @@ export default function BICList() {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`)
             }
-            await fetchBICs()
+            await onSuccess()
             setEditingBIC(null)
         } catch (error) {
             console.error("Failed to update BIC:", error)
         }
     }
 
-    if (isLoading) return <div>Loading...</div>
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+        )
+    }
     if (error) return <div>Error: {error}</div>
 
     return (
@@ -178,6 +189,4 @@ export default function BICList() {
         </div>
     )
 }
-
-
 
