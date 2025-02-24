@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "MOS 1710 Management System",
   "scripts": {
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:deploy": "bash scripts/docker-deploy.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
