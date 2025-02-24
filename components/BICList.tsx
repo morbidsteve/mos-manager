@@ -4,7 +4,14 @@ import { useEffect, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogDescription,
+} from "@/components/ui/dialog"
 import { Pencil, Trash2 } from "lucide-react"
 
 interface BIC {
@@ -133,6 +140,9 @@ export default function BICList({ initialBics, isLoading, onSuccess }: BICListPr
                                         <DialogContent>
                                             <DialogHeader>
                                                 <DialogTitle>Edit BIC</DialogTitle>
+                                                <DialogDescription>
+                                                    Update the information for this BIC. Required fields are marked with an asterisk (*).
+                                                </DialogDescription>
                                             </DialogHeader>
                                             <form
                                                 onSubmit={(e) => {

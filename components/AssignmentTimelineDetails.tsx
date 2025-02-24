@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { format } from "date-fns"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +22,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import MarineDetails from "./MarineDetails"
 import { useState } from "react"
 
@@ -96,8 +99,10 @@ interface Marine {
 
 export function AssignmentTimelineDetails({ assignment, onAssignmentUpdate }: AssignmentTimelineDetailsProps) {
     const [showMarineDetails, setShowMarineDetails] = useState(false)
+    const [isEditingAssignment, setIsEditingAssignment] = useState(false)
+    const [editedAssignment, setEditedAssignment] = useState(assignment)
+    const [isEditing, setIsEditing] = useState(false)
 
-    // Add proper type checking for marine updates
     const handleMarineUpdate = async (updatedMarine: Marine) => {
         try {
             const response = await fetch(`/api/marines/${updatedMarine.id}`, {
@@ -120,12 +125,104 @@ export function AssignmentTimelineDetails({ assignment, onAssignmentUpdate }: As
         }
     }
 
+    const handleAssignmentUpdate = async (updatedAssignment: Assignment) => {
+        try {
+            const response = await fetch(`/api/assignments/${assignment.id}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(updatedAssignment),
+            })
+
+            if (!response.ok) throw new Error("Failed to update assignment")
+
+            const updatedAssignmentData = await response.json()
+            onAssignmentUpdate(updatedAssignmentData)
+            setIsEditingAssignment(false)
+        } catch (error) {
+            console.error("Error updating assignment:", error)
+        }
+    }
+
+    // In the AssignmentEditForm component, replace the existing form state with local state
+    const AssignmentEditForm = () => {
+        const [formData, setFormData] = useState({
+            dctb: format(new Date(editedAssignment.dctb), "yyyy-MM-dd"),
+            djcu: format(new Date(editedAssignment.djcu), "yyyy-MM-dd"),
+            ocd: editedAssignment.ocd ? format(new Date(editedAssignment.ocd), "yyyy-MM-dd") : "",
+            tourLength: editedAssignment.tourLength.toString(),
+        })
+
+        const handleSubmit = async (e: React.FormEvent) => {
+            e.preventDefault()
+            const updatedAssignment = {
+                ...editedAssignment,
+                dctb: formData.dctb,
+                djcu: formData.djcu,
+                ocd: formData.ocd || null,
+                tourLength: Number.parseInt(formData.tourLength) || editedAssignment.tourLength,
+            }
+            await handleAssignmentUpdate(updatedAssignment)
+        }
+
+        return (
+            <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-sm font-medium">DCTB</label>
+                        <Input
+                            type="date"
+                            value={formData.dctb}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, dctb: e.target.value }))}
+                            className="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium">DJCU</label>
+                        <Input
+                            type="date"
+                            value={formData.djcu}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, djcu: e.target.value }))}
+                            className="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium">OCD</label>
+                        <Input
+                            type="date"
+                            value={formData.ocd}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, ocd: e.target.value }))}
+                            className="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium">Tour Length (months)</label>
+                        <Input
+                            type="number"
+                            value={formData.tourLength}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, tourLength: e.target.value }))}
+                            className="w-full"
+                            min="0"
+                        />
+                    </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsEditingAssignment(false)}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSubmit}>Save Changes</Button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <>
             <ScrollArea className="h-[80vh] pr-4">
                 <div className="space-y-6">
                     {/* Marine Information */}
-                    <Card className="relative group cursor-pointer" onClick={() => setShowMarineDetails(true)}>
+                    <Card className="relative group">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <User className="h-5 w-5" />
@@ -138,9 +235,6 @@ export function AssignmentTimelineDetails({ assignment, onAssignmentUpdate }: As
                                     <h4 className="font-semibold mb-2">
                                         {assignment.marine.lastName}, {assignment.marine.firstName} {assignment.marine.middleInitial}
                                     </h4>
-                                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        View/Edit Details
-                                    </Button>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
@@ -184,86 +278,110 @@ export function AssignmentTimelineDetails({ assignment, onAssignmentUpdate }: As
                     </Card>
 
                     {/* Assignment Information */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Building2 className="h-5 w-5" />
-                                Assignment Details
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid gap-4">
-                                <div>
-                                    <h4 className="font-semibold mb-2">Unit Information</h4>
-                                    <p className="text-lg">{assignment.unit.name}</p>
-                                    <p className="text-sm text-muted-foreground">MCC: {assignment.unit.mcc}</p>
-                                    {assignment.unit.notes && (
-                                        <p className="text-sm text-muted-foreground mt-2">Notes: {assignment.unit.notes}</p>
-                                    )}
+                    {isEditing ? (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Edit Assignment</CardTitle>
+                                <CardDescription>Update the assignment details below</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <AssignmentEditForm />
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card>
+                            <CardHeader>
+                                <div className="flex justify-between items-center">
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Building2 className="h-5 w-5" />
+                                        Assignment Details
+                                    </CardTitle>
+                                    <Button variant="outline" size="sm" onClick={() => setIsEditingAssignment(true)}>
+                                        <Pencil className="h-4 w-4 mr-2" />
+                                        Edit Assignment
+                                    </Button>
                                 </div>
-                                <div>
-                                    <h4 className="font-semibold mb-2">BIC Information</h4>
-                                    <p className="text-lg">{assignment.bic.bic}</p>
-                                    <p className="text-sm text-muted-foreground">Description: {assignment.bic.description}</p>
-                                    <p className="text-sm text-muted-foreground">Required Pay Grade: {assignment.bic.payGrade}</p>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="grid gap-4">
-                                <h4 className="font-semibold">Dates</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="flex items-center gap-2">
-                                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                                        <div>
-                                            <p className="text-sm font-medium">DCTB</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {format(new Date(assignment.dctb), "dd MMM yyyy")}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                                        <div>
-                                            <p className="text-sm font-medium">DJCU</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {format(new Date(assignment.djcu), "dd MMM yyyy")}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    {assignment.ocd && (
-                                        <div className="flex items-center gap-2">
-                                            <Globe className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {isEditingAssignment ? (
+                                    <AssignmentEditForm />
+                                ) : (
+                                    <>
+                                        <div className="grid gap-4">
                                             <div>
-                                                <p className="text-sm font-medium">OCD</p>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {format(new Date(assignment.ocd), "dd MMM yyyy")}
+                                                <h4 className="font-semibold mb-2">Unit Information</h4>
+                                                <p className="text-lg">{assignment.unit.name}</p>
+                                                <p className="text-sm text-muted-foreground">MCC: {assignment.unit.mcc}</p>
+                                                {assignment.unit.notes && (
+                                                    <p className="text-sm text-muted-foreground mt-2">Notes: {assignment.unit.notes}</p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-semibold mb-2">BIC Information</h4>
+                                                <p className="text-lg">{assignment.bic.bic}</p>
+                                                <p className="text-sm text-muted-foreground">Description: {assignment.bic.description}</p>
+                                                <p className="text-sm text-muted-foreground">Required Pay Grade: {assignment.bic.payGrade}</p>
+                                            </div>
+                                        </div>
+
+                                        <Separator />
+
+                                        <div className="grid gap-4">
+                                            <h4 className="font-semibold">Dates</h4>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                                    <div>
+                                                        <p className="text-sm font-medium">DCTB</p>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            {format(new Date(assignment.dctb), "dd MMM yyyy")}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                                    <div>
+                                                        <p className="text-sm font-medium">DJCU</p>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            {format(new Date(assignment.djcu), "dd MMM yyyy")}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                {assignment.ocd && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Globe className="h-4 w-4 text-muted-foreground" />
+                                                        <div>
+                                                            <p className="text-sm font-medium">OCD</p>
+                                                            <p className="text-sm text-muted-foreground">
+                                                                {format(new Date(assignment.ocd), "dd MMM yyyy")}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {assignment.plannedEndDate && (
+                                                    <div className="flex items-center gap-2">
+                                                        <Clock className="h-4 w-4 text-muted-foreground" />
+                                                        <div>
+                                                            <p className="text-sm font-medium">Planned End Date</p>
+                                                            <p className="text-sm text-muted-foreground">
+                                                                {format(new Date(assignment.plannedEndDate), "dd MMM yyyy")}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Users className="h-4 w-4 text-muted-foreground" />
+                                                <p className="text-sm">
+                                                    Tour Length: <span className="font-medium">{assignment.tourLength} months</span>
                                                 </p>
                                             </div>
                                         </div>
-                                    )}
-                                    {assignment.plannedEndDate && (
-                                        <div className="flex items-center gap-2">
-                                            <Clock className="h-4 w-4 text-muted-foreground" />
-                                            <div>
-                                                <p className="text-sm font-medium">Planned End Date</p>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {format(new Date(assignment.plannedEndDate), "dd MMM yyyy")}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Users className="h-4 w-4 text-muted-foreground" />
-                                    <p className="text-sm">
-                                        Tour Length: <span className="font-medium">{assignment.tourLength} months</span>
-                                    </p>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
+                                    </>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Orders Information */}
                     {assignment.orders && (
@@ -377,19 +495,16 @@ export function AssignmentTimelineDetails({ assignment, onAssignmentUpdate }: As
                 </div>
             </ScrollArea>
 
-            {/* Nested Marine Details Dialog */}
-            <Dialog open={showMarineDetails} onOpenChange={setShowMarineDetails}>
+            {/* Marine Details Dialog */}
+            <Dialog
+                open={showMarineDetails}
+                onOpenChange={setShowMarineDetails}
+                aria-labelledby="marine-details-title"
+                aria-describedby="marine-details-description"
+            >
                 <DialogContent className="max-w-3xl h-[90vh] flex flex-col">
-                    <DialogHeader className="flex-none">
-                        <DialogTitle className="flex justify-between items-center">
-                            Marine Details
-                            {true && (
-                                <Button onClick={() => {}} variant="outline" size="sm" className="flex items-center gap-2">
-                                    <Pencil className="h-4 w-4" />
-                                    Edit Details
-                                </Button>
-                            )}
-                        </DialogTitle>
+                    <DialogHeader>
+                        <DialogTitle id="marine-details-title">Marine Details</DialogTitle>
                     </DialogHeader>
                     <div className="flex-1 overflow-y-auto px-6">
                         <MarineDetails

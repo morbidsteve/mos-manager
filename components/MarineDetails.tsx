@@ -1,14 +1,25 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import MarineForm from "./MarineForm" // Reusing the existing Marine form
 import { Pencil } from "lucide-react"
+import {
+    calculateTimeLeftOnOrders,
+    calculateSEDD,
+    calculate20YearMark,
+    calculate30YearMark,
+    calculateTimeLeftTo20,
+    calculateTimeLeftToHigh3,
+    calculateHigh3,
+    formatDate,
+} from "@/lib/calculations"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { format } from "date-fns"
 
 interface Marine {
     id: number
@@ -42,6 +53,23 @@ interface MarineHistory {
     newValue: any
 }
 
+interface Assignment {
+    id: number
+    bic: { bic: string }
+    unit: { name: string }
+    dctb: string
+    djcu: string
+    ocd: string | null
+    plannedEndDate: string
+    tourLength: number
+}
+
+interface AssignmentHistoryResponse {
+    past: Assignment[]
+    current: Assignment[]
+    future: Assignment[]
+}
+
 interface AssignmentHistory {
     id: number
     assignmentId: number
@@ -71,10 +99,14 @@ interface MarineDetailsProps {
 export default function MarineDetails({ marineId, onClose, onUpdate, allowEditing = false }: MarineDetailsProps) {
     const [marine, setMarine] = useState<Marine | null>(null)
     const [marineHistory, setMarineHistory] = useState<MarineHistory[]>([])
-    const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([])
+    const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryResponse>({
+        past: [],
+        current: [],
+        future: [],
+    })
     const [isLoading, setIsLoading] = useState(true)
     const [isEditing, setIsEditing] = useState(false)
-    const componentRef = useRef<HTMLDivElement>(null)
+    const [componentRef] = useState<HTMLDivElement | null>(null)
     const [selectedAssignment, setSelectedAssignment] = useState<AssignmentHistory | null>(null)
 
     useEffect(() => {
@@ -93,8 +125,10 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                         historyResponse.json(),
                         assignmentHistoryResponse.json(),
                     ])
+
                     setMarine(marineData)
                     setMarineHistory(historyData)
+                    // The data is already categorized, so we can use it directly
                     setAssignmentHistory(assignmentHistoryData)
                 } else {
                     console.error("Failed to fetch Marine data, history, or assignment history")
@@ -137,13 +171,17 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
     }
 
     // Calculate values only after we confirm marine exists
-    const timeLeftOnOrders =
-        marine?.dctb && marine?.tourLength
-            ? calculateTimeLeft(
-                marine.dctb,
-                new Date(new Date(marine.dctb).setMonth(new Date(marine.dctb).getMonth() + marine.tourLength)).toISOString(),
-            )
-            : "N/A"
+    const timeLeftOnOrders = calculateTimeLeftOnOrders(
+        new Date(marine.dctb),
+        marine.tourLength / 12, // Convert months to years
+    )
+
+    const sedd = calculateSEDD(new Date(marine.dctb), marine.tourLength / 12)
+    const mark20 = calculate20YearMark(new Date(marine.afadbd))
+    const mark30 = calculate30YearMark(new Date(marine.afadbd))
+    const timeLeftTo20 = calculateTimeLeftTo20(new Date(marine.afadbd))
+    const high3 = calculateHigh3(new Date(marine.afadbd), 20) // Assuming 20 years for high-3
+    const timeLeftToHigh3 = calculateTimeLeftToHigh3(new Date(marine.afadbd))
 
     const twentyYearMark = new Date(marine.afadbd)
     twentyYearMark.setFullYear(twentyYearMark.getFullYear() + 20)
@@ -189,26 +227,96 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
         }
     }
 
-    const formatHistoryValue = (value: string): string => {
+    const formatHistoryValue = (value: string, fieldName: string): JSX.Element => {
         try {
             const parsed = JSON.parse(value)
-            // If it's a marine object, format it nicely
-            if (parsed?.lastName && parsed?.firstName) {
-                return `${parsed.lastName}, ${parsed.firstName} ${parsed.middleInitial || ""}`
+
+            // For CREATE action, show all relevant fields in a structured way
+            if (fieldName === "CREATE") {
+                return (
+                    <div className="space-y-2">
+                        {Object.entries(parsed)
+                            .filter(([key, value]) => value !== null && value !== undefined && key !== "id")
+                            .map(([key, value]) => (
+                                <div key={key} className="grid grid-cols-2 gap-2 text-sm">
+                                    <span className="font-medium">{key}:</span>
+                                    <span>
+                    {(() => {
+                        // Handle different value types
+                        if (typeof value === "string") {
+                            // Try to parse as date first
+                            const date = new Date(value)
+                            if (!isNaN(date.getTime()) && value.includes("-")) {
+                                return format(date, "dd MMM yyyy")
+                            }
+                            return value
+                        }
+                        if (typeof value === "boolean") {
+                            return value ? "Yes" : "No"
+                        }
+                        if (typeof value === "number") {
+                            return value.toString()
+                        }
+                        return JSON.stringify(value)
+                    })()}
+                  </span>
+                                </div>
+                            ))}
+                    </div>
+                )
             }
-            // If it's a date, format it
-            if (parsed && !isNaN(new Date(parsed).getTime())) {
-                return new Date(parsed).toLocaleDateString()
+
+            // For regular field updates
+            if (typeof parsed === "string") {
+                // Check if it's a date
+                const date = new Date(parsed)
+                if (!isNaN(date.getTime()) && parsed.includes("-")) {
+                    return <span>{format(date, "dd MMM yyyy")}</span>
+                }
+                return <span>{parsed}</span>
             }
-            // If it's a simple value, return as is
-            if (typeof parsed !== "object") {
-                return String(parsed)
+
+            // For boolean values
+            if (typeof parsed === "boolean") {
+                return <span>{parsed ? "Yes" : "No"}</span>
             }
-            // For other objects, return a formatted string
-            return JSON.stringify(parsed, null, 2)
+
+            // For number values
+            if (typeof parsed === "number") {
+                return <span>{parsed}</span>
+            }
+
+            // For objects (like Marine updates)
+            if (typeof parsed === "object" && parsed !== null) {
+                if (parsed.lastName && parsed.firstName) {
+                    return (
+                        <span>
+              {`${parsed.lastName}, ${parsed.firstName} ${parsed.middleInitial || ""} (${parsed.payGrade || ""})`}
+            </span>
+                    )
+                }
+
+                // For other objects, show key-value pairs
+                return (
+                    <div className="space-y-1">
+                        {Object.entries(parsed)
+                            .filter(([_, v]) => v !== null && v !== undefined)
+                            .map(([k, v]) => (
+                                <div key={k} className="grid grid-cols-2 gap-2 text-sm">
+                                    <span className="font-medium">{k}:</span>
+                                    <span>
+                    {typeof v === "string" && !isNaN(Date.parse(v)) ? format(new Date(v), "dd MMM yyyy") : String(v)}
+                  </span>
+                                </div>
+                            ))}
+                    </div>
+                )
+            }
+
+            return <span>{String(parsed)}</span>
         } catch {
             // If parsing fails, return the original value
-            return value || "N/A"
+            return <span>{value || "N/A"}</span>
         }
     }
 
@@ -249,38 +357,31 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                     <DialogHeader>
                         <DialogTitle>Edit Marine</DialogTitle>
                     </DialogHeader>
-                    <MarineForm marine={marine} onSubmit={handleUpdate} onCancel={() => setIsEditing(false)} />
+                    <MarineForm
+                        marine={marine} // Pass the current marine data
+                        onSubmit={handleUpdate}
+                        onCancel={() => setIsEditing(false)}
+                    />
                 </DialogContent>
             </Dialog>
         )
     }
 
     return (
-        <div
-            className="space-y-8 bg-background text-foreground overflow-y-auto"
-            ref={componentRef}
-            style={{ visibility: "visible", opacity: 1 }}
-        >
-            <Card className="bg-white dark:bg-gray-700">
-                <div className="absolute top-2 right-2 flex gap-2">
-                    {allowEditing && (
-                        <Button
-                            onClick={handleEdit}
-                            variant="outline"
-                            size="sm"
-                            className="rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
-                        >
-                            <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Edit</span>
-                        </Button>
-                    )}
-                    <button onClick={onClose} className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors">
-                        <X className="h-4 w-4" />
-                        <span className="sr-only">Close</span>
-                    </button>
-                </div>
-                <CardHeader>
-                    <CardTitle className="text-xl font-semibold">{`${marine.lastName}, ${marine.firstName} ${marine.middleInitial || ""}`}</CardTitle>
+        <div className="space-y-8 bg-background text-foreground" style={{ visibility: "visible", opacity: 1 }}>
+            <Card>
+                <CardHeader className="relative">
+                    <div className="flex justify-between items-center">
+                        <CardTitle className="text-xl font-semibold">
+                            {`${marine.lastName}, ${marine.firstName} ${marine.middleInitial || ""}`}
+                        </CardTitle>
+                        {allowEditing && (
+                            <Button onClick={handleEdit} variant="outline" size="sm" className="flex items-center gap-2">
+                                <Pencil className="h-4 w-4" />
+                                Edit Details
+                            </Button>
+                        )}
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -293,6 +394,13 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                         <InfoItem label="DJCU" value={marine.djcu ? new Date(marine.djcu).toLocaleDateString() : "N/A"} />
                         <InfoItem label="OCD" value={marine.ocd ? new Date(marine.ocd).toLocaleDateString() : "N/A"} />
                         <InfoItem label="SEDD" value={marine.sedd ? new Date(marine.sedd).toLocaleDateString() : "N/A"} />
+                        <InfoItem label="Time Left on Orders" value={`${timeLeftOnOrders} years`} />
+                        <InfoItem label="SEDD" value={formatDate(sedd)} />
+                        <InfoItem label="20 Year Mark" value={formatDate(mark20)} />
+                        <InfoItem label="30 Year Mark" value={formatDate(mark30)} />
+                        <InfoItem label="Time Left to 20" value={`${timeLeftTo20} years`} />
+                        <InfoItem label="Time Left to High-3" value={`${timeLeftToHigh3} years`} />
+                        <InfoItem label="High-3" value={`${high3} years`} />
                         <InfoItem label="Time left on orders" value={`${timeLeftOnOrders} months`} />
                         <InfoItem label="20 year mark" value={twentyYearMark.toLocaleDateString()} />
                         <InfoItem label="30 year mark" value={thirtyYearMark.toLocaleDateString()} />
@@ -321,7 +429,7 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Date</TableHead>
+                                    <TableHead>Timestamp</TableHead>
                                     <TableHead>Field</TableHead>
                                     <TableHead>Old Value</TableHead>
                                     <TableHead>New Value</TableHead>
@@ -330,10 +438,18 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                             <TableBody>
                                 {marineHistory.map((change, index) => (
                                     <TableRow key={index}>
-                                        <TableCell>{new Date(change.changedAt).toLocaleString()}</TableCell>
+                                        <TableCell>{format(new Date(change.changedAt), "dd MMM yyyy HH:mm")}</TableCell>
                                         <TableCell>{change.fieldName}</TableCell>
-                                        <TableCell>{change.oldValue ? formatHistoryValue(change.oldValue) : "N/A"}</TableCell>
-                                        <TableCell>{change.newValue ? formatHistoryValue(change.newValue) : "N/A"}</TableCell>
+                                        <TableCell>
+                                            {change.oldValue ? (
+                                                formatHistoryValue(change.oldValue, change.fieldName)
+                                            ) : (
+                                                <span className="text-muted-foreground">N/A</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="whitespace-pre-wrap">
+                                            {formatHistoryValue(change.newValue, change.fieldName)}
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -351,106 +467,33 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead>Status</TableHead>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Change Type</TableHead>
                                     <TableHead>BIC</TableHead>
                                     <TableHead>Unit</TableHead>
-                                    <TableHead>DCTB</TableHead>
-                                    <TableHead>DJCU</TableHead>
-                                    <TableHead>OCD</TableHead>
-                                    <TableHead>Planned End Date</TableHead>
                                     <TableHead>Tour Length</TableHead>
+                                    <TableHead>Join Date</TableHead>
+                                    <TableHead>Depart Date</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {assignmentHistory.map((change) => {
-                                    const newValue = parseAssignmentDetails(change.newValue)
-                                    const oldValue = change.changeType === "UPDATE" ? parseAssignmentDetails(change.oldValue) : null
-
-                                    return (
-                                        <TableRow key={change.id}>
-                                            <TableCell>{new Date(change.changedAt).toLocaleString()}</TableCell>
-                                            <TableCell>{change.changeType}</TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.bic}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.bic}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.bic
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.unitName}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.unitName}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.unitName
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.dctb}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.dctb}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.dctb
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.djcu}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.djcu}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.djcu
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.ocd}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.ocd}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.ocd
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.plannedEndDate}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.plannedEndDate}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.plannedEndDate
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {change.changeType === "UPDATE" ? (
-                                                    <>
-                                                        <span className="line-through text-red-500">{oldValue?.tourLength}</span>
-                                                        <br />
-                                                        <span className="text-green-500">{newValue.tourLength}</span>
-                                                    </>
-                                                ) : (
-                                                    newValue.tourLength
-                                                )}
-                                            </TableCell>
-                                        </TableRow>
-                                    )
-                                })}
+                                {[
+                                    ...assignmentHistory.current.map((assignment) => ({ ...assignment, status: "Current" })),
+                                    ...assignmentHistory.future.map((assignment) => ({ ...assignment, status: "Future" })),
+                                    ...assignmentHistory.past.map((assignment) => ({ ...assignment, status: "Past" })),
+                                ].map((assignment) => (
+                                    <TableRow key={assignment.id}>
+                                        <TableCell>{assignment.status}</TableCell>
+                                        <TableCell>{format(new Date(assignment.dctb), "dd MMM yyyy")}</TableCell>
+                                        <TableCell>{assignment.bic.bic}</TableCell>
+                                        <TableCell>{assignment.unit.name}</TableCell>
+                                        <TableCell>{assignment.tourLength} months</TableCell>
+                                        <TableCell>{format(new Date(assignment.djcu), "dd MMM yyyy")}</TableCell>
+                                        <TableCell>
+                                            {assignment.plannedEndDate ? format(new Date(assignment.plannedEndDate), "dd MMM yyyy") : "N/A"}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
                             </TableBody>
                         </Table>
                     </div>
@@ -461,9 +504,9 @@ export default function MarineDetails({ marineId, onClose, onUpdate, allowEditin
                     <DialogHeader className="flex-none">
                         <DialogTitle>Marine Details</DialogTitle>
                     </DialogHeader>
-                    <div className="flex-1 overflow-y-auto pr-2">
-                        {selectedAssignment && <div>AssignmentTimelineDetails Component Here</div>}
-                    </div>
+                    <ScrollArea className="flex-1">
+                        <div className="p-6">{selectedAssignment && <div>AssignmentTimelineDetails Component Here</div>}</div>
+                    </ScrollArea>
                 </DialogContent>
             </Dialog>
         </div>

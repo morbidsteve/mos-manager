@@ -10,6 +10,7 @@ const navigation = [
     { name: "Units", href: "/units" },
     { name: "BICs", href: "/bics" },
     { name: "Timeline", href: "/timeline" },
+    { name: "Statistics", href: "/statistics" }, // Added new navigation item
 ]
 
 export function Header() {

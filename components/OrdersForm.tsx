@@ -48,8 +48,6 @@ interface OrdersFormProps {
     onCancel: () => void
 }
 
-const orderTypes = ["PCS", "PCA", "TEMINS", "TAD"]
-
 export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormProps) {
     const [units, setUnits] = useState<Unit[]>([])
     const [allBICs, setAllBICs] = useState<BIC[]>([])
@@ -59,8 +57,9 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
 
     const [formData, setFormData] = useState({
         marineId: marine.id.toString(),
-        orderNumber: "",
         unitId: "",
+        bicId: "",
+        orderNumber: "",
         type: "PCS",
         status: "DRAFTED",
         issuedDate: new Date(),
@@ -102,19 +101,52 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
         fetchData()
     }, [])
 
+    // Update filtered BICs when unit changes
     useEffect(() => {
         if (formData.unitId) {
             const selectedUnitId = Number(formData.unitId)
             const filteredBICs = allBICs.filter((bic) => bic.unit.id === selectedUnitId)
             setFilteredBICs(filteredBICs)
+
+            // Clear BIC selection if the selected BIC is not valid for the new unit
+            if (!filteredBICs.some((bic) => bic.id.toString() === formData.bicId)) {
+                setFormData((prev) => ({ ...prev, bicId: "" }))
+            }
         }
-    }, [formData.unitId, allBICs])
+    }, [formData.unitId, allBICs, formData.bicId])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError(null)
 
         try {
+            // Create the assignment first
+            const assignmentResponse = await fetch("/api/assignments", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    marineId: Number(formData.marineId),
+                    unitId: Number(formData.unitId),
+                    bicId: Number(formData.bicId),
+                    dctb: formData.reportNoLaterThan,
+                    djcu: formData.reportNoLaterThan,
+                    tourLength: 24, // Default tour length
+                    plannedEndDate: new Date(
+                        new Date(formData.reportNoLaterThan).setMonth(new Date(formData.reportNoLaterThan).getMonth() + 24),
+                    ),
+                }),
+            })
+
+            if (!assignmentResponse.ok) {
+                const data = await assignmentResponse.json()
+                throw new Error(data.error || "Failed to create assignment")
+            }
+
+            const assignmentData = await assignmentResponse.json()
+
+            // Then create the orders
             const response = await fetch("/api/orders", {
                 method: "POST",
                 headers: {
@@ -124,7 +156,7 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
                     ...formData,
                     marineId: Number(formData.marineId),
                     unitId: Number(formData.unitId),
-                    travelDays: Number(formData.travelDays),
+                    assignmentId: assignmentData.id,
                 }),
             })
 
@@ -135,6 +167,7 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
 
             onSuccess()
         } catch (error) {
+            console.error("Error:", error)
             setError(error instanceof Error ? error.message : "Failed to create orders")
         }
     }
@@ -184,6 +217,23 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
                     </Select>
                 </div>
 
+                {/* BIC Selection */}
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">BIC *</label>
+                    <Select value={formData.bicId} onValueChange={(value) => setFormData((prev) => ({ ...prev, bicId: value }))}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select BIC" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {filteredBICs.map((bic) => (
+                                <SelectItem key={bic.id} value={bic.id.toString()}>
+                                    {bic.bic} - {bic.description} ({bic.payGrade})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
                 {/* Order Type */}
                 <div className="space-y-2">
                     <label className="text-sm font-medium">Order Type *</label>
@@ -192,11 +242,10 @@ export default function OrdersForm({ marine, onSuccess, onCancel }: OrdersFormPr
                             <SelectValue placeholder="Select Order Type" />
                         </SelectTrigger>
                         <SelectContent>
-                            {orderTypes.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                    {type}
-                                </SelectItem>
-                            ))}
+                            <SelectItem value="PCS">PCS</SelectItem>
+                            <SelectItem value="PCA">PCA</SelectItem>
+                            <SelectItem value="TEMINS">TEMINS</SelectItem>
+                            <SelectItem value="TAD">TAD</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>

@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import type React from "react"
+
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -12,17 +14,21 @@ import {
     DialogDescription,
     DialogFooter,
 } from "@/components/ui/dialog"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format } from "date-fns"
-import { CalendarIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Pencil, Trash2, FileText, Plus } from "lucide-react"
+import { Pencil, Trash2, FileText, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Filter } from "lucide-react"
 import MarineDetails from "./MarineDetails"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import AssignmentForm from "./AssignmentForm"
 import OrdersForm from "./OrdersForm"
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 interface Marine {
     id: number
@@ -64,6 +70,11 @@ interface MarineListProps {
     onSuccess: () => Promise<void>
 }
 
+interface FilterState {
+    pmos: string[]
+    payGrade: string[]
+}
+
 const payGrades = [
     "E1",
     "E2",
@@ -88,7 +99,6 @@ const payGrades = [
 ]
 
 const clearanceLevels = ["Secret", "Top Secret", "TS/SCI"]
-
 const polyTypes = ["CI", "Full Scope"]
 
 export default function MarineList({ initialMarines, isLoading, onSuccess }: MarineListProps) {
@@ -97,23 +107,92 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
     const [isAddingMarine, setIsAddingMarine] = useState(false)
     const [isViewingDetails, setIsViewingDetails] = useState(false)
     const [selectedMarineId, setSelectedMarineId] = useState<number | null>(null)
-    const dialogRef = useRef<HTMLDivElement>(null)
     const [assigningMarine, setAssigningMarine] = useState<AssignmentMarine | null>(null)
     const [addingOrdersFor, setAddingOrdersFor] = useState<AssignmentMarine | null>(null)
+    const [filters, setFilters] = useState<FilterState>({
+        pmos: [],
+        payGrade: [],
+    })
+
+    const [sortConfig, setSortConfig] = useState<{
+        key: string
+        direction: "asc" | "desc" | null
+    }>({
+        key: "lastName",
+        direction: "asc",
+    })
+
+    // Get unique values for filters
+    const uniquePMOS = Array.from(new Set(marines.map((m) => m.pmos)))
+        .filter(Boolean)
+        .sort()
+    const uniquePayGrades = Array.from(new Set(marines.map((m) => m.payGrade)))
+        .filter(Boolean)
+        .sort()
+
+    const handleSort = (key: string) => {
+        setSortConfig((current) => {
+            if (current.key === key) {
+                if (current.direction === "asc") {
+                    return { key, direction: "desc" }
+                }
+                if (current.direction === "desc") {
+                    return { key: "lastName", direction: "asc" }
+                }
+            }
+            return { key, direction: "asc" }
+        })
+    }
 
     useEffect(() => {
         console.log("MarineList received initialMarines:", initialMarines)
         setMarines(initialMarines)
     }, [initialMarines])
 
-    async function fetchMarines() {
-        const response = await fetch("/api/marines")
-        if (response.ok) {
-            const data = await response.json()
-            setMarines(data.sort((a: Marine, b: Marine) => a.lastName.localeCompare(b.lastName)))
-        } else {
-            console.error("Failed to fetch marines")
-        }
+    useEffect(() => {
+        console.log("MarineList component mounted")
+        return () => console.log("MarineList component unmounted")
+    }, [])
+
+    useEffect(() => {
+        console.log("isAddingMarine state changed:", isAddingMarine)
+    }, [isAddingMarine])
+
+    // Filter and sort marines
+    const filteredAndSortedMarines = [...marines]
+        .filter((marine) => {
+            const pmosMatch = filters.pmos.length === 0 || filters.pmos.includes(marine.pmos || "")
+            const payGradeMatch = filters.payGrade.length === 0 || filters.payGrade.includes(marine.payGrade || "")
+            return pmosMatch && payGradeMatch
+        })
+        .sort((a, b) => {
+            if (sortConfig.direction === null) {
+                return 0
+            }
+
+            const aValue = a[sortConfig.key as keyof typeof a]
+            const bValue = b[sortConfig.key as keyof typeof b]
+
+            if (aValue === null || aValue === undefined) return 1
+            if (bValue === null || bValue === undefined) return -1
+
+            const modifier = sortConfig.direction === "asc" ? 1 : -1
+
+            if (typeof aValue === "string" && typeof bValue === "string") {
+                return aValue.localeCompare(bValue) * modifier
+            }
+
+            if (aValue < bValue) return -1 * modifier
+            if (aValue > bValue) return 1 * modifier
+            return 0
+        })
+
+    const clearFilter = (type: keyof FilterState) => {
+        setFilters((prev) => ({ ...prev, [type]: [] }))
+    }
+
+    const clearAllFilters = () => {
+        setFilters({ pmos: [], payGrade: [] })
     }
 
     const handleViewDetails = (marineId: number) => {
@@ -128,46 +207,93 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
 
     async function deleteMarine(id: number) {
         if (confirm("Are you sure you want to delete this Marine?")) {
-            const response = await fetch(`/api/marines/${id}`, {
-                method: "DELETE",
-            })
-            if (response.ok) {
+            try {
+                const response = await fetch(`/api/marines/${id}`, {
+                    method: "DELETE",
+                })
+                if (!response.ok) {
+                    throw new Error("Failed to delete marine")
+                }
                 await onSuccess()
-            } else {
-                console.error("Failed to delete marine")
+            } catch (error) {
+                console.error("Failed to delete marine:", error)
             }
         }
     }
 
-    async function updateMarine(marine: Marine) {
-        const response = await fetch(`/api/marines/${marine.id}`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(marine),
-        })
-        if (response.ok) {
-            await onSuccess()
+    async function updateMarine(marine: Partial<Marine>) {
+        if (!marine.id) {
+            console.error("Cannot update marine: No ID provided")
+            return
+        }
+
+        try {
+            const response = await fetch(`/api/marines/${marine.id}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(marine),
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json()
+                throw new Error(errorData.error || "Failed to update marine")
+            }
+
+            const updatedMarine = await response.json()
+            await onSuccess() // Refresh the list after successful update
             setEditingMarine(null)
-        } else {
-            console.error("Failed to update marine")
+        } catch (error) {
+            console.error("Failed to update marine:", error)
+            // You might want to show an error toast or message to the user here
         }
     }
 
     async function addMarine(marine: Partial<Marine>) {
-        const response = await fetch("/api/marines", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(marine),
-        })
-        if (response.ok) {
+        try {
+            // Clean up the data before submission
+            const cleanedData = {
+                ...marine,
+                // Convert empty strings to null for optional fields
+                dateOfBirth: marine.dateOfBirth ? new Date(marine.dateOfBirth).toISOString() : null,
+                middleInitial: marine.middleInitial || null,
+                cmf: marine.cmf || null,
+                projectedSchoolhouse: marine.projectedSchoolhouse || null,
+                clearance: marine.clearance || null,
+                poly: marine.poly || null,
+                // Convert string numbers to actual numbers or null
+                tourLength: marine.tourLength ? Number.parseInt(marine.tourLength.toString()) : null,
+                linealNumber: marine.linealNumber ? Number.parseInt(marine.linealNumber.toString()) : null,
+                ldoFy: marine.ldoFy ? Number.parseInt(marine.ldoFy.toString()) : null,
+                // Convert date strings to ISO format
+                dor: new Date(marine.dor as string).toISOString(),
+                afadbd: new Date(marine.afadbd as string).toISOString(),
+                dctb: marine.dctb ? new Date(marine.dctb).toISOString() : null,
+                djcu: marine.djcu ? new Date(marine.djcu).toISOString() : null,
+                ocd: marine.ocd ? new Date(marine.ocd).toISOString() : null,
+                sedd: marine.sedd ? new Date(marine.sedd).toISOString() : null,
+            }
+
+            console.log("Submitting cleaned marine data:", cleanedData)
+            const response = await fetch("/api/marines", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(cleanedData),
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json()
+                throw new Error(errorData.error || "Failed to add marine")
+            }
+
             await onSuccess()
             setIsAddingMarine(false)
-        } else {
-            console.error("Failed to add marine")
+        } catch (error) {
+            console.error("Failed to add marine:", error)
+            alert(error instanceof Error ? error.message : "Failed to add marine")
         }
     }
 
@@ -180,88 +306,105 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
         onSubmit: (marine: Partial<Marine>) => void
         onCancel: () => void
     }) => {
-        const [formData, setFormData] = useState(marine)
+        console.log("MarineForm rendered with props:", { marine })
+        const [formData, setFormData] = useState({
+            id: marine.id, // Add this line to include the ID
+            edipi: marine.edipi || "",
+            lastName: marine.lastName || "",
+            firstName: marine.firstName || "",
+            middleInitial: marine.middleInitial || "",
+            payGrade: marine.payGrade || "",
+            pmos: marine.pmos || "",
+            dateOfBirth: marine.dateOfBirth ? format(new Date(marine.dateOfBirth), "yyyy-MM-dd") : "",
+            dor: marine.dor ? format(new Date(marine.dor), "yyyy-MM-dd") : "",
+            afadbd: marine.afadbd ? format(new Date(marine.afadbd), "yyyy-MM-dd") : "",
+            trained: marine.trained || false,
+            cmf: marine.cmf || "",
+            projectedSchoolhouse: marine.projectedSchoolhouse || "",
+            clearance: marine.clearance || "",
+            poly: marine.poly || "",
+            tourLength: marine.tourLength?.toString() || "",
+            linealNumber: marine.linealNumber?.toString() || "",
+        })
 
-        const handleDateChange = (field: string, date: Date | undefined) => {
-            setFormData((prev) => {
-                const newState = { ...prev, [field]: date }
+        // Update the handleSubmit function to only send changed fields
+        const handleSubmit = (e: React.FormEvent) => {
+            e.preventDefault()
+            console.log("Form submitted with data:", formData)
+            if (!formData.id) {
+                console.error("No marine ID provided for update")
+                return
+            }
 
-                // Calculate LDO FY when DOR changes and pay grade is W1
-                if (field === "dor" && date && prev.payGrade === "W1") {
-                    const ldoYear = new Date(date).getFullYear() + 5
-                    newState.ldoFy = ldoYear
-                }
+            // Track which fields actually changed
+            const changedFields = Object.entries(formData).reduce(
+                (acc, [key, value]) => {
+                    if (marine[key as keyof typeof marine] !== value) {
+                        acc[key] = value
+                    }
+                    return acc
+                },
+                {} as Record<string, any>,
+            )
 
-                return newState
-            })
+            // Only format dates that actually changed
+            const formattedData = {
+                id: formData.id,
+                ...changedFields,
+                ...(changedFields.dateOfBirth && {
+                    dateOfBirth: `${changedFields.dateOfBirth}T00:00:00.000Z`,
+                }),
+                ...(changedFields.dor && {
+                    dor: `${changedFields.dor}T00:00:00.000Z`,
+                }),
+                ...(changedFields.afadbd && {
+                    afadbd: `${changedFields.afadbd}T00:00:00.000Z`,
+                }),
+                ...(changedFields.tourLength && {
+                    tourLength: Number.parseInt(changedFields.tourLength as string),
+                }),
+                ...(changedFields.linealNumber && {
+                    linealNumber: Number.parseInt(changedFields.linealNumber as string),
+                }),
+            }
+
+            onSubmit(formattedData)
         }
 
         return (
-            <form
-                onSubmit={(e) => {
-                    e.preventDefault()
-                    onSubmit(formData)
-                }}
-                className="space-y-6"
-            >
+            <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Personal Information */}
                     <div className="space-y-4">
                         <h3 className="font-semibold">Personal Information</h3>
                         <Input
                             name="edipi"
-                            value={formData.edipi || ""}
+                            value={formData.edipi}
                             onChange={(e) => setFormData((prev) => ({ ...prev, edipi: e.target.value }))}
                             placeholder="EDIPI"
                             required
                         />
                         <Input
                             name="lastName"
-                            value={formData.lastName || ""}
+                            value={formData.lastName}
                             onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
                             placeholder="Last Name"
                             required
                         />
                         <Input
                             name="firstName"
-                            value={formData.firstName || ""}
+                            value={formData.firstName}
                             onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))}
                             placeholder="First Name"
                             required
                         />
                         <Input
                             name="middleInitial"
-                            value={formData.middleInitial || ""}
+                            value={formData.middleInitial}
                             onChange={(e) => setFormData((prev) => ({ ...prev, middleInitial: e.target.value }))}
                             placeholder="Middle Initial"
                             maxLength={1}
                         />
-
-                        <div className="space-y-2">
-                            <label className="text-sm">Date of Birth</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.dateOfBirth && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.dateOfBirth ? format(formData.dateOfBirth, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.dateOfBirth}
-                                        onSelect={(date) => handleDateChange("dateOfBirth", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
                     </div>
 
                     {/* Military Information */}
@@ -269,19 +412,7 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
                         <h3 className="font-semibold">Military Information</h3>
                         <Select
                             value={formData.payGrade}
-                            onValueChange={(value) => {
-                                setFormData((prev) => {
-                                    const newState = { ...prev, payGrade: value }
-
-                                    // Calculate LDO FY when changing to W1 and DOR exists
-                                    if (value === "W1" && prev.dor) {
-                                        const ldoYear = new Date(prev.dor).getFullYear() + 5
-                                        newState.ldoFy = ldoYear
-                                    }
-
-                                    return newState
-                                })
-                            }}
+                            onValueChange={(value) => setFormData((prev) => ({ ...prev, payGrade: value }))}
                         >
                             <SelectTrigger>
                                 <SelectValue placeholder="Select Pay Grade" />
@@ -297,62 +428,29 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
 
                         <Input
                             name="pmos"
-                            value={formData.pmos || ""}
+                            value={formData.pmos}
                             onChange={(e) => setFormData((prev) => ({ ...prev, pmos: e.target.value }))}
                             placeholder="PMOS"
-                            required
                         />
 
                         <div className="space-y-2">
                             <label className="text-sm">Date of Rank</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.dor && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.dor ? format(formData.dor, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.dor}
-                                        onSelect={(date) => handleDateChange("dor", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <Input
+                                type="date"
+                                name="dor"
+                                value={formData.dor}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, dor: e.target.value }))}
+                            />
                         </div>
 
                         <div className="space-y-2">
                             <label className="text-sm">AFADBD</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.afadbd && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.afadbd ? format(formData.afadbd, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.afadbd}
-                                        onSelect={(date) => handleDateChange("afadbd", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <Input
+                                type="date"
+                                name="afadbd"
+                                value={formData.afadbd}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, afadbd: e.target.value }))}
+                            />
                         </div>
                     </div>
 
@@ -367,20 +465,6 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
                             />
                             <label htmlFor="trained">Trained</label>
                         </div>
-
-                        <Input
-                            name="cmf"
-                            value={formData.cmf || ""}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, cmf: e.target.value }))}
-                            placeholder="CMF"
-                        />
-
-                        <Input
-                            name="projectedSchoolhouse"
-                            value={formData.projectedSchoolhouse || ""}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, projectedSchoolhouse: e.target.value }))}
-                            placeholder="Projected Schoolhouse"
-                        />
 
                         <Select
                             value={formData.clearance}
@@ -410,156 +494,33 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-
-                    {/* Assignment Information */}
-                    <div className="space-y-4">
-                        <h3 className="font-semibold">Assignment Information</h3>
-                        <div className="space-y-2">
-                            <label className="text-sm">DCTB</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.dctb && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.dctb ? format(formData.dctb, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.dctb}
-                                        onSelect={(date) => handleDateChange("dctb", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm">DJCU</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.djcu && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.djcu ? format(formData.djcu, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.djcu}
-                                        onSelect={(date) => handleDateChange("djcu", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm">OCD</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.ocd && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.ocd ? format(formData.ocd, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.ocd}
-                                        onSelect={(date) => handleDateChange("ocd", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm">SEDD</label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                            "w-full justify-start text-left font-normal",
-                                            !formData.sedd && "text-muted-foreground",
-                                        )}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {formData.sedd ? format(formData.sedd, "PPP") : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                    <Calendar
-                                        mode="single"
-                                        selected={formData.sedd}
-                                        onSelect={(date) => handleDateChange("sedd", date)}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
 
                         <Input
-                            type="number"
-                            name="tourLength"
-                            value={formData.tourLength || ""}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, tourLength: Number.parseInt(e.target.value) }))}
-                            placeholder="Tour Length (months)"
+                            name="projectedSchoolhouse"
+                            value={formData.projectedSchoolhouse}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, projectedSchoolhouse: e.target.value }))}
+                            placeholder="Projected Schoolhouse"
                         />
                     </div>
 
                     {/* Additional Information */}
                     <div className="space-y-4">
                         <h3 className="font-semibold">Additional Information</h3>
-                        <div className="space-y-2">
-                            <label htmlFor="linealNumber" className="text-sm">
-                                Lineal Number
-                            </label>
-                            <Input
-                                id="linealNumber"
-                                type="number"
-                                name="linealNumber"
-                                value={formData.linealNumber || ""}
-                                onChange={(e) => setFormData((prev) => ({ ...prev, linealNumber: Number.parseInt(e.target.value) }))}
-                                placeholder="Lineal Number"
-                            />
-                        </div>
+                        <Input
+                            type="number"
+                            name="tourLength"
+                            value={formData.tourLength}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, tourLength: e.target.value }))}
+                            placeholder="Tour Length (months)"
+                        />
 
-                        <div className="space-y-2">
-                            <label htmlFor="ldoFy" className="text-sm">
-                                LDO Fiscal Year
-                                <span className="text-muted-foreground ml-2 text-xs">(Auto-calculated: DOR + 5 years for WO1)</span>
-                            </label>
-                            <Input
-                                id="ldoFy"
-                                type="number"
-                                name="ldoFy"
-                                value={formData.ldoFy || ""}
-                                readOnly
-                                className="bg-muted"
-                                placeholder="Automatically calculated for WO1"
-                            />
-                        </div>
+                        <Input
+                            type="number"
+                            name="linealNumber"
+                            value={formData.linealNumber}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, linealNumber: e.target.value }))}
+                            placeholder="Lineal Number"
+                        />
                     </div>
                 </div>
 
@@ -584,8 +545,52 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold">Marines</h2>
-                <Button onClick={() => setIsAddingMarine(true)}>
+                <div className="space-y-2">
+                    <h2 className="text-2xl font-bold">Marines</h2>
+                    {(filters.pmos.length > 0 || filters.payGrade.length > 0) && (
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-sm text-muted-foreground">Active filters:</span>
+                            {filters.pmos.map((pmos) => (
+                                <Badge key={pmos} variant="secondary" className="flex items-center gap-1">
+                                    PMOS: {pmos}
+                                    <X
+                                        className="h-3 w-3 cursor-pointer"
+                                        onClick={() =>
+                                            setFilters((prev) => ({
+                                                ...prev,
+                                                pmos: prev.pmos.filter((p) => p !== pmos),
+                                            }))
+                                        }
+                                    />
+                                </Badge>
+                            ))}
+                            {filters.payGrade.map((grade) => (
+                                <Badge key={grade} variant="secondary" className="flex items-center gap-1">
+                                    Pay Grade: {grade}
+                                    <X
+                                        className="h-3 w-3 cursor-pointer"
+                                        onClick={() =>
+                                            setFilters((prev) => ({
+                                                ...prev,
+                                                payGrade: prev.payGrade.filter((p) => p !== grade),
+                                            }))
+                                        }
+                                    />
+                                </Badge>
+                            ))}
+                            <Button variant="ghost" size="sm" onClick={clearAllFilters} className="h-7 px-2 text-sm">
+                                Clear all
+                            </Button>
+                        </div>
+                    )}
+                </div>
+                <Button
+                    onClick={() => {
+                        console.log("Add Marine button clicked, current isAddingMarine state:", isAddingMarine)
+                        setIsAddingMarine(true)
+                        console.log("Setting isAddingMarine to true")
+                    }}
+                >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Marine
                 </Button>
@@ -595,17 +600,145 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>EDIPI</TableHead>
-                            <TableHead>Last Name</TableHead>
-                            <TableHead>First Name</TableHead>
-                            <TableHead>MI</TableHead>
-                            <TableHead>Pay Grade</TableHead>
-                            <TableHead>PMOS</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort("edipi")}>
+                                <div className="flex items-center gap-1">
+                                    EDIPI
+                                    {sortConfig.key === "edipi" &&
+                                        (sortConfig.direction === "asc" ? (
+                                            <ArrowUp className="h-4 w-4" />
+                                        ) : (
+                                            <ArrowDown className="h-4 w-4" />
+                                        ))}
+                                    {sortConfig.key !== "edipi" && <ArrowUpDown className="h-4 w-4" />}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort("lastName")}>
+                                <div className="flex items-center gap-1">
+                                    Last Name
+                                    {sortConfig.key === "lastName" &&
+                                        (sortConfig.direction === "asc" ? (
+                                            <ArrowUp className="h-4 w-4" />
+                                        ) : (
+                                            <ArrowDown className="h-4 w-4" />
+                                        ))}
+                                    {sortConfig.key !== "lastName" && <ArrowUpDown className="h-4 w-4" />}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort("firstName")}>
+                                <div className="flex items-center gap-1">
+                                    First Name
+                                    {sortConfig.key === "firstName" &&
+                                        (sortConfig.direction === "asc" ? (
+                                            <ArrowUp className="h-4 w-4" />
+                                        ) : (
+                                            <ArrowDown className="h-4 w-4" />
+                                        ))}
+                                    {sortConfig.key !== "firstName" && <ArrowUpDown className="h-4 w-4" />}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort("middleInitial")}>
+                                <div className="flex items-center gap-1">
+                                    MI
+                                    {sortConfig.key === "middleInitial" &&
+                                        (sortConfig.direction === "asc" ? (
+                                            <ArrowUp className="h-4 w-4" />
+                                        ) : (
+                                            <ArrowDown className="h-4 w-4" />
+                                        ))}
+                                    {sortConfig.key !== "middleInitial" && <ArrowUpDown className="h-4 w-4" />}
+                                </div>
+                            </TableHead>
+                            <TableHead>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="-ml-3 h-8 data-[state=open]:bg-accent">
+                                            <div className="flex items-center gap-1">
+                                                Pay Grade
+                                                <Filter className="h-4 w-4" />
+                                                {filters.payGrade.length > 0 && (
+                                                    <Badge variant="secondary" className="ml-1 h-6">
+                                                        {filters.payGrade.length}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className="w-[150px]">
+                                        {uniquePayGrades.map((grade) => (
+                                            <DropdownMenuCheckboxItem
+                                                key={grade}
+                                                checked={filters.payGrade.includes(grade)}
+                                                onCheckedChange={(checked) => {
+                                                    setFilters((prev) => ({
+                                                        ...prev,
+                                                        payGrade: checked ? [...prev.payGrade, grade] : prev.payGrade.filter((g) => g !== grade),
+                                                    }))
+                                                }}
+                                            >
+                                                {grade}
+                                            </DropdownMenuCheckboxItem>
+                                        ))}
+                                        {filters.payGrade.length > 0 && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="w-full justify-start font-normal"
+                                                onClick={() => clearFilter("payGrade")}
+                                            >
+                                                Clear filters
+                                            </Button>
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableHead>
+                            <TableHead>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="-ml-3 h-8 data-[state=open]:bg-accent">
+                                            <div className="flex items-center gap-1">
+                                                PMOS
+                                                <Filter className="h-4 w-4" />
+                                                {filters.pmos.length > 0 && (
+                                                    <Badge variant="secondary" className="ml-1 h-6">
+                                                        {filters.pmos.length}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className="w-[150px]">
+                                        {uniquePMOS.map((pmos) => (
+                                            <DropdownMenuCheckboxItem
+                                                key={pmos}
+                                                checked={filters.pmos.includes(pmos)}
+                                                onCheckedChange={(checked) => {
+                                                    setFilters((prev) => ({
+                                                        ...prev,
+                                                        pmos: checked ? [...prev.pmos, pmos] : prev.pmos.filter((p) => p !== pmos),
+                                                    }))
+                                                }}
+                                            >
+                                                {pmos}
+                                            </DropdownMenuCheckboxItem>
+                                        ))}
+                                        {filters.pmos.length > 0 && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="w-full justify-start font-normal"
+                                                onClick={() => clearFilter("pmos")}
+                                            >
+                                                Clear filters
+                                            </Button>
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {marines.map((marine) => (
+                        {filteredAndSortedMarines.map((marine) => (
                             <TableRow key={marine.id}>
                                 <TableCell>{marine.edipi}</TableCell>
                                 <TableCell>{marine.lastName}</TableCell>
@@ -649,8 +782,14 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
             </div>
 
             {/* Add Marine Dialog */}
-            <Dialog open={isAddingMarine} onOpenChange={setIsAddingMarine}>
-                <DialogContent className="sm:max-w-4xl w-[90vw] max-h-[90vh] overflow-y-auto">
+            <Dialog
+                open={isAddingMarine}
+                onOpenChange={(open) => {
+                    console.log("Dialog onOpenChange called with value:", open)
+                    setIsAddingMarine(open)
+                }}
+            >
+                <DialogContent className="sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>Add New Marine</DialogTitle>
                         <DialogDescription>
@@ -664,7 +803,7 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
             {/* Edit Marine Dialog */}
             {editingMarine && (
                 <Dialog open={!!editingMarine} onOpenChange={(open) => !open && setEditingMarine(null)}>
-                    <DialogContent className="sm:max-w-4xl w-[90vw] max-h-[90vh] overflow-y-auto">
+                    <DialogContent className="sm:max-w-4xl">
                         <DialogHeader>
                             <DialogTitle>Edit Marine</DialogTitle>
                             <DialogDescription>
@@ -679,11 +818,16 @@ export default function MarineList({ initialMarines, isLoading, onSuccess }: Mar
             {/* View Details Dialog */}
             {isViewingDetails && selectedMarineId && (
                 <Dialog open={isViewingDetails} onOpenChange={handleCloseDetails}>
-                    <DialogContent className="sm:max-w-[800px] w-[90vw] max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
+                    <DialogContent className="max-w-[1000px] h-[85vh] p-0 flex flex-col overflow-hidden">
+                        <DialogHeader className="p-6 flex-none">
                             <DialogTitle>Marine Details</DialogTitle>
+                            <DialogDescription>View detailed information about this Marine.</DialogDescription>
                         </DialogHeader>
-                        <MarineDetails marineId={selectedMarineId} onClose={handleCloseDetails} />
+                        <ScrollArea className="flex-1 w-full">
+                            <div className="p-6">
+                                <MarineDetails marineId={selectedMarineId} onClose={handleCloseDetails} />
+                            </div>
+                        </ScrollArea>
                     </DialogContent>
                 </Dialog>
             )}

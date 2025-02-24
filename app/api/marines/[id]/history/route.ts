@@ -14,8 +14,15 @@ export async function GET(request: NextRequest, context: { params: { id: string 
     try {
         const history = await prisma.marineHistory.findMany({
             where: { marineId },
+            select: {
+                changedAt: true,
+                fieldName: true,
+                oldValue: true,
+                newValue: true,
+            },
             orderBy: { changedAt: "desc" },
         })
+
         return NextResponse.json(history)
     } catch (error) {
         console.error("Error fetching Marine history:", error)
