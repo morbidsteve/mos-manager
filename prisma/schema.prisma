@@ -1,0 +1,170 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Marine {
+  id                   Int             @id @default(autoincrement())
+  edipi                String          @unique
+  lastName             String
+  firstName            String
+  middleInitial        String?
+  payGrade             String?
+  pmos                 String?
+  dateOfBirth          DateTime?
+  dor                  DateTime? // Date of Rank
+  afadbd               DateTime? // Armed Forces Active Duty Base Date
+  trained              Boolean?
+  cmf                  String?
+  projectedSchoolhouse String?
+  dctb                 DateTime? // Date Current Tour Began
+  djcu                 DateTime? // Date Joined Current Unit
+  ocd                  DateTime? // Overseas Control Date
+  sedd                 DateTime? // Separation/EAS Date
+  clearance            String?
+  poly                 String?
+  tourLength           Int? // Tour length in months
+  linealNumber         Int?
+  ldoFy                Int? // LDO Fiscal Year
+  assignments          Assignment[]
+  marineHistory        MarineHistory[]
+  orders               Orders[]
+}
+
+model Unit {
+  id                 Int                  @id @default(autoincrement())
+  mcc                String               @unique
+  name               String
+  notes              String? // Added notes field
+  assignments        Assignment[]
+  bics               BIC[]
+  orders             Orders[] // Added relation to Orders
+  authorizedStrength AuthorizedStrength[]
+}
+
+model Assignment {
+  id             Int                 @id @default(autoincrement())
+  marine         Marine              @relation(fields: [marineId], references: [id])
+  marineId       Int
+  unit           Unit                @relation(fields: [unitId], references: [id])
+  unitId         Int
+  bic            BIC                 @relation(fields: [bicId], references: [id])
+  bicId          Int
+  dctb           DateTime // Date Current Tour Began
+  djcu           DateTime // Date Joined Current Unit
+  ocd            DateTime? // Overseas Control Date
+  tourLength     Int // Tour length in months
+  plannedEndDate DateTime
+  orders         Orders?             @relation(fields: [ordersId], references: [id]) // Link to orders
+  ordersId       Int?
+  history        AssignmentHistory[]
+
+  @@unique([marineId, unitId, dctb])
+}
+
+model Orders {
+  id                       Int          @id @default(autoincrement())
+  orderNumber              String       @unique
+  marine                   Marine       @relation(fields: [marineId], references: [id])
+  marineId                 Int
+  unit                     Unit         @relation(fields: [unitId], references: [id])
+  unitId                   Int
+  type                     String // PCS, PCA, etc.
+  status                   String // DRAFTED, ISSUED, EXECUTED, etc.
+  issuedDate               DateTime
+  reportNoLaterThan        DateTime
+  detachNoEarlierThan      DateTime?
+  detachNoLaterThan        DateTime
+  proceedDate              DateTime // When marine should start travel
+  travelDays               Int // Authorized travel days
+  temporaryDutyEnRoute     Boolean      @default(false)
+  tdyLocation              String?
+  tdyStartDate             DateTime?
+  tdyEndDate               DateTime?
+  dependentsAuthorized     Boolean      @default(false)
+  povShipmentAuthorized    Boolean      @default(false)
+  householdGoodsAuthorized Boolean      @default(false)
+  remarks                  String?
+  assignments              Assignment[]
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+}
+
+model BIC {
+  id          Int          @id @default(autoincrement())
+  bic         String       @unique
+  description String
+  payGrade    String
+  unit        Unit         @relation(fields: [unitId], references: [id])
+  unitId      Int
+  assignments Assignment[]
+}
+
+model PromotionEvent {
+  id                 Int       @id @default(autoincrement())
+  event              String
+  roughDate          String?
+  method             String?
+  opr                String?
+  fy                 String
+  callingMaradmin    String?
+  callingReleaseDate DateTime?
+  packageDue         DateTime?
+  julianDate         String?
+  daysToComplete     Int?
+  boardConvene       DateTime?
+  selectionMaradmin  String?
+  selectionMsgDate   DateTime?
+  pkgToResults       Int?
+  notes              String?
+}
+
+model AssignmentHistory {
+  id           Int        @id @default(autoincrement())
+  assignment   Assignment @relation(fields: [assignmentId], references: [id])
+  assignmentId Int
+  changeType   String // e.g., "CREATE", "UPDATE", "DELETE"
+  changedField String? // The field that was changed (null for CREATE and DELETE)
+  oldValue     String? // The old value (null for CREATE)
+  newValue     String? // The new value (null for DELETE)
+  changedAt    DateTime   @default(now())
+}
+
+model ChangeLog {
+  id           Int      @id @default(autoincrement())
+  modelName    String // e.g., "Marine", "Unit", "Assignment", "BIC"
+  recordId     Int // The ID of the changed record
+  changeType   String // e.g., "CREATE", "UPDATE", "DELETE"
+  changedField String? // The field that was changed (null for CREATE and DELETE)
+  oldValue     String? // The old value (null for CREATE)
+  newValue     String? // The new value (null for DELETE)
+  changedAt    DateTime @default(now())
+}
+
+model MarineHistory {
+  id        Int      @id @default(autoincrement())
+  marineId  Int
+  marine    Marine   @relation(fields: [marineId], references: [id])
+  fieldName String
+  oldValue  String?
+  newValue  String?
+  changedAt DateTime @default(now())
+}
+
+model AuthorizedStrength {
+  id         Int      @id @default(autoincrement())
+  payGrade   String
+  pmos       String
+  authorized Int
+  unit       Unit     @relation(fields: [unitId], references: [id])
+  unitId     Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([payGrade, pmos, unitId])
+}
